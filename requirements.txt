@@ -1,3 +1,4 @@
 streamlit
+docx
 reportlab
-textract
+doc2docx
