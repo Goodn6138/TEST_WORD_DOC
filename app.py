@@ -1,38 +1,53 @@
 import streamlit as st
-from docx import Document
-from io import BytesIO
 from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
+from io import BytesIO
+import textract
+import tempfile
 
-def convert_docx_to_pdf(docx_file):
-    doc = Document(docx_file)
+def extract_text(file):
+    with tempfile.NamedTemporaryFile(delete=False, suffix=file.name) as tmp:
+        tmp.write(file.read())
+        tmp_path = tmp.name
+
+    try:
+        text = textract.process(tmp_path).decode("utf-8")
+        return text
+    except Exception as e:
+        return None
+
+def convert_text_to_pdf(text):
     buffer = BytesIO()
-    pdf = SimpleDocTemplate(buffer)
+    doc = SimpleDocTemplate(buffer)
     styles = getSampleStyleSheet()
-    content = []
+    flowables = []
 
-    for para in doc.paragraphs:
-        content.append(Paragraph(para.text, styles["Normal"]))
+    for line in text.splitlines():
+        flowables.append(Paragraph(line, styles["Normal"]))
 
-    pdf.build(content)
+    doc.build(flowables)
     buffer.seek(0)
     return buffer
 
-st.set_page_config(page_title="Docx to PDF Converter", layout="centered")
+st.set_page_config(page_title="Doc/Docx to PDF Converter", layout="centered")
 
-st.title("📄 Docx to PDF Converter")
-st.write("Upload a `.docx` file to convert it into a PDF.")
+st.title("📄 Word to PDF Converter")
+st.write("Upload a `.doc` or `.docx` file and get a PDF.")
 
-uploaded_file = st.file_uploader("Choose a .docx file", type="docx")
+uploaded_file = st.file_uploader("Choose a file", type=["doc", "docx"])
 
-if uploaded_file is not None:
+if uploaded_file:
     if st.button("Convert to PDF"):
-        with st.spinner("Converting..."):
-            pdf_buffer = convert_docx_to_pdf(uploaded_file)
-            st.success("Conversion successful!")
-            st.download_button(
-                label="📥 Download PDF",
-                data=pdf_buffer,
-                file_name="converted.pdf",
-                mime="application/pdf"
-            )
+        with st.spinner("Extracting and converting..."):
+            extracted_text = extract_text(uploaded_file)
+            if extracted_text:
+                pdf_buffer = convert_text_to_pdf(extracted_text)
+                st.success("✅ Conversion successful!")
+                st.download_button(
+                    label="📥 Download PDF",
+                    data=pdf_buffer,
+                    file_name="converted.pdf",
+                    mime="application/pdf"
+                )
+            else:
+                st.error("❌ Failed to extract text from file.")
