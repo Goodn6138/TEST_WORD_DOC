@@ -1,53 +1,62 @@
 import streamlit as st
+from io import BytesIO
+from docx import Document
 from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
-from io import BytesIO
-import textract
+from doc2docx import convert
+import os
 import tempfile
+import uuid
 
-def extract_text(file):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=file.name) as tmp:
-        tmp.write(file.read())
-        tmp_path = tmp.name
+def convert_doc_to_docx(doc_file):
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".doc") as tmp_doc:
+        tmp_doc.write(doc_file.read())
+        doc_path = tmp_doc.name
 
-    try:
-        text = textract.process(tmp_path).decode("utf-8")
-        return text
-    except Exception as e:
-        return None
+    output_docx = doc_path + ".docx"
+    convert(doc_path, output_docx)
+    return output_docx
 
-def convert_text_to_pdf(text):
+def extract_text_from_docx(docx_path):
+    doc = Document(docx_path)
+    return "\n".join([para.text for para in doc.paragraphs])
+
+def text_to_pdf(text):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer)
     styles = getSampleStyleSheet()
-    flowables = []
-
-    for line in text.splitlines():
-        flowables.append(Paragraph(line, styles["Normal"]))
-
-    doc.build(flowables)
+    content = [Paragraph(line, styles["Normal"]) for line in text.splitlines()]
+    doc.build(content)
     buffer.seek(0)
     return buffer
 
-st.set_page_config(page_title="Doc/Docx to PDF Converter", layout="centered")
+st.set_page_config(page_title="Word to PDF Converter", layout="centered")
 
-st.title("📄 Word to PDF Converter")
-st.write("Upload a `.doc` or `.docx` file and get a PDF.")
+st.title("📄 Word (.doc/.docx) to PDF Converter")
+uploaded_file = st.file_uploader("Upload a Word file", type=["doc", "docx"])
 
-uploaded_file = st.file_uploader("Choose a file", type=["doc", "docx"])
+if uploaded_file and st.button("Convert to PDF"):
+    with st.spinner("Processing..."):
+        try:
+            suffix = os.path.splitext(uploaded_file.name)[1].lower()
 
-if uploaded_file:
-    if st.button("Convert to PDF"):
-        with st.spinner("Extracting and converting..."):
-            extracted_text = extract_text(uploaded_file)
-            if extracted_text:
-                pdf_buffer = convert_text_to_pdf(extracted_text)
-                st.success("✅ Conversion successful!")
-                st.download_button(
-                    label="📥 Download PDF",
-                    data=pdf_buffer,
-                    file_name="converted.pdf",
-                    mime="application/pdf"
-                )
+            if suffix == ".doc":
+                docx_path = convert_doc_to_docx(uploaded_file)
+                text = extract_text_from_docx(docx_path)
+                os.remove(docx_path)  # Clean up
             else:
-                st.error("❌ Failed to extract text from file.")
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
+                    tmp.write(uploaded_file.read())
+                    tmp.flush()
+                    text = extract_text_from_docx(tmp.name)
+
+            pdf_buffer = text_to_pdf(text)
+            st.success("✅ Conversion successful!")
+            st.download_button(
+                label="📥 Download PDF",
+                data=pdf_buffer,
+                file_name="converted.pdf",
+                mime="application/pdf"
+            )
+        except Exception as e:
+            st.error(f"❌ Error: {e}")
